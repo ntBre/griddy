@@ -15,8 +15,10 @@ fn main() {
     let config = Config::load(config_file);
     let no_del = false;
     let work_dir = ".";
+    let pts_dir = "pts";
     max_threads(8);
     cleanup(work_dir);
+    let _ = std::fs::create_dir(pts_dir);
     let (spectro, output) = <Cart as CoordType<_, _, Molpro>>::run(
         Cart,
         work_dir,
@@ -25,7 +27,7 @@ fn main() {
             config.chunk_size,
             config.job_limit,
             config.sleep_int,
-            "pts",
+            pts_dir,
             no_del,
             config.queue_template.clone(),
         ),
