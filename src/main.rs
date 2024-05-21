@@ -1,5 +1,6 @@
 use pbqff::config::Config;
 use pbqff::coord_type::{Cart, CoordType};
+use psqs::max_threads;
 use psqs::program::molpro::Molpro;
 use psqs::queue::pbs::Pbs;
 
@@ -12,6 +13,7 @@ fn main() {
     };
     let config = Config::load(config_file);
     let no_del = false;
+    max_threads(8);
     let (spectro, output) = <Cart as CoordType<_, _, Molpro>>::run(
         Cart,
         ".",
