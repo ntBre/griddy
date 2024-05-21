@@ -1,0 +1,37 @@
+geometry = """
+H
+O 1 oh
+He -1 1.0 1.0 0.0
+
+OH=                  0.96404013
+"""
+optimize = true
+charge = -1
+step_size = 0.005
+sleep_int = 5
+job_limit = 256
+chunk_size = 43 # calculations take ~7 seconds
+coord_type = "cart"
+findiff = true
+template = """memory,1,g
+gthresh,energy=1.d-12,zero=1.d-22,oneint=1.d-22,twoint=1.d-22;
+gthresh,optgrad=1.d-8,optstep=1.d-8;
+nocompress;
+
+geometry={
+{{.geom}}
+basis={
+default,cc-pVDZ-f12
+}
+set,charge={{.charge}}
+set,spin=0
+hf,accuracy=16,energy=1.0d-10
+{CCSD(T)-F12,thrden=1.0d-12,thrvar=1.0d-10}
+{optg,grms=1.d-8,srms=1.d-8}
+
+pbqff=energy(2)
+show[1,f20.12],pbqff"""
+program = "molpro"
+queue = "pbs"
+check_int = 1000
+dummy_atoms = 1

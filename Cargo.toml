@@ -1,0 +1,11 @@
+[package]
+name = "griddy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pbqff = { version = "0.1.0", path = "../rust-pbqff" }
+psqs = { version = "0.1.0", path = "../psqs" }
+
+[patch."https://github.com/ntBre/psqs"]
+psqs = { version = "0.1.0", path = "../psqs" }
