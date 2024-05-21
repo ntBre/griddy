@@ -90,4 +90,5 @@ fn main() {
     spectro
         .write_output(&mut std::io::stdout(), &output)
         .unwrap();
+    std::fs::write("spectro.json", output.to_json_pretty().unwrap()).unwrap();
 }

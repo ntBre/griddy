@@ -9,3 +9,6 @@ psqs = { version = "0.1.0", path = "../psqs" }
 
 [patch."https://github.com/ntBre/psqs"]
 psqs = { version = "0.1.0", path = "../psqs" }
+
+[patch."https://github.com/ntBre/spectro"]
+spectro = { version = "0.1.0", path = "../spectro/spectro" }
