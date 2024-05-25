@@ -6,9 +6,13 @@ edition = "2021"
 [dependencies]
 pbqff = { version = "0.1.0", path = "../rust-pbqff" }
 psqs = { version = "0.1.0", path = "../psqs" }
+symm = { version = "0.1.0", path = "../symm" }
 
 [patch."https://github.com/ntBre/psqs"]
 psqs = { version = "0.1.0", path = "../psqs" }
 
 [patch."https://github.com/ntBre/spectro"]
 spectro = { version = "0.1.0", path = "../spectro/spectro" }
+
+[patch."https://github.com/ntBre/symm"]
+symm = { version = "0.1.0", path = "../symm" }
