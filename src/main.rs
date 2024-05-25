@@ -64,11 +64,8 @@ fn first_part(
             mol.atoms[i].weight = Some(*w);
         }
     }
-    println!("original geometry:\n{mol}");
-    println!("point group:{pg}", pg = mol.point_group());
-    mol.normalize();
     let pg = mol.point_group();
-    println!("normalized geometry:\n{mol}");
+    println!("geometry:\n{mol}");
     println!("point group:{pg}");
     let mut target_map = BigHash::new(mol.clone(), pg);
     let geoms = Cart.build_points(
