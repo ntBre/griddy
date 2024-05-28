@@ -64,6 +64,12 @@ fn first_part(
             mol.atoms[i].weight = Some(*w);
         }
     }
+    if std::env::var("GRIDDY_NORMALIZE").is_ok() {
+        println!("normalizing geometry");
+        mol.normalize();
+    } else {
+        println!("NOT normalizing geometry");
+    }
     let pg = mol.point_group();
     println!("geometry:\n{mol}");
     println!("point group:{pg}");
