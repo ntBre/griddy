@@ -70,8 +70,7 @@ fn first_part(
     } else {
         println!("NOT normalizing geometry");
     }
-    // let pg = mol.point_group();
-    let pg = symm::PointGroup::C1;
+    let pg = mol.point_group();
     println!("geometry:\n{mol}");
     println!("point group:{pg}");
     let mut target_map = BigHash::new(mol.clone(), pg);
