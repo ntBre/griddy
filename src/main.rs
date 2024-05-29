@@ -169,6 +169,26 @@ fn run(
         mol.atoms.truncate(mol.atoms.len() - d);
     }
 
+    println!("mol={:.8}", mol);
+
+    println!("fc2={:.8}", fc2);
+
+    println!("fc3");
+    for fs in f3.chunks(4) {
+        for f in fs {
+            print!("{f:20.12}");
+        }
+        println!();
+    }
+
+    println!("fc4");
+    for fs in f4.chunks(4) {
+        for f in fs {
+            print!("{f:20.12}");
+        }
+        println!();
+    }
+
     freqs(Some(freq_dir), &mol, fc2, f3, f4)
 }
 
