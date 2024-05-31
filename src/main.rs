@@ -230,9 +230,12 @@ fn main() {
     spectro.write_output(&mut stdout(), &output).unwrap();
     std::fs::write("spectro.json", output.to_json_pretty().unwrap()).unwrap();
 
+    println!("{}", spectro.to_json_pretty().unwrap());
+
     println!("checking frequencies");
 
     let s = Spectro::load("freqs/spectro.in");
     let o = s.run_files("freqs/fort.15", "freqs/fort.30", "freqs/fort.40");
     s.write_output(&mut stdout(), &o).unwrap();
+    println!("{}", s.to_json_pretty().unwrap());
 }
