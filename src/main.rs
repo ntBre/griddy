@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::io::stdout;
+use std::io::stderr;
 use std::path::Path;
 
 use pbqff::config::Config;
@@ -65,8 +65,8 @@ fn first_part(
         }
     }
     let pg = mol.point_group();
-    println!("geometry:\n{mol}");
-    println!("point group:{pg}");
+    eprintln!("geometry:\n{mol}");
+    eprintln!("point group:{pg}");
     let mut target_map = BigHash::new(mol.clone(), pg);
     let geoms = Cart.build_points(
         Geom::Xyz(mol.atoms.clone()),
@@ -100,7 +100,7 @@ fn first_part(
         })
         .collect();
     let njobs = jobs.len();
-    println!("{n} Cartesian coordinates requires {njobs} points");
+    eprintln!("{n} Cartesian coordinates requires {njobs} points");
 
     // drain into energies
     let mut energies = vec![0.0; njobs];
@@ -182,25 +182,54 @@ fn main() {
     } else {
         args[1].as_str()
     };
-    let config = Config::load(config_file);
+    let mut config = Config::load(config_file);
     let no_del = false;
     let work_dir = ".";
     let pts_dir = "pts";
     max_threads(8);
-    cleanup(work_dir);
-    let _ = std::fs::create_dir(pts_dir);
-    let (spectro, output) = run(
-        work_dir,
-        &Pbs::new(
-            config.chunk_size,
-            config.job_limit,
-            config.sleep_int,
-            pts_dir,
-            no_del,
-            config.queue_template.clone(),
-        ),
-        &config,
-    );
-    spectro.write_output(&mut stdout(), &output).unwrap();
-    std::fs::write("spectro.json", output.to_json_pretty().unwrap()).unwrap();
+
+    println!("{:>5} {:>5} {:>8} {:>8}", "y", "z", "harm", "corr");
+
+    let geom_template = config
+        .geometry
+        .zmat()
+        .cloned()
+        .expect("griddy requires Z-matrix input");
+
+    // molpro orients a diatomic molecule along the z-axis, so we need to step
+    // He in the yz- (or xz-) plane, with the wider range along z
+    let mut y = 1.0;
+    let mut z = -6.0;
+    while z <= 6.0 {
+        while y <= 6.0 {
+            cleanup(work_dir);
+            let _ = std::fs::create_dir(pts_dir);
+            // require {{y}} and {{z}} placeholders in Z-matrix geometry for
+            // positioning the He atom for each calculation
+            config.geometry = Geom::Zmat(
+                geom_template
+                    .replace("{{y}}", &y.to_string())
+                    .replace("{{z}}", &z.to_string()),
+            );
+            let (spectro, output) = run(
+                work_dir,
+                &Pbs::new(
+                    config.chunk_size,
+                    config.job_limit,
+                    config.sleep_int,
+                    pts_dir,
+                    no_del,
+                    config.queue_template.clone(),
+                ),
+                &config,
+            );
+            spectro.write_output(&mut stderr(), &output).unwrap();
+            println!(
+                "{y:5.2} {z:5.2} {:8.2} {:8.2}",
+                output.harms[0], output.corrs[0]
+            );
+            y += 0.2;
+        }
+        z += 0.2;
+    }
 }
