@@ -198,10 +198,8 @@ fn main() {
 
     // molpro orients a diatomic molecule along the z-axis, so we need to step
     // He in the yz- (or xz-) plane, with the wider range along z
-    let mut y = 1.0;
-    let mut z = -6.0;
-    while z <= 6.0 {
-        while y <= 6.0 {
+    for z in (-60..60).step_by(2).map(|z| z as f64 / 10.0) {
+        for y in (10..60).step_by(2).map(|y| y as f64 / 10.0) {
             cleanup(work_dir);
             let _ = std::fs::create_dir(pts_dir);
             // require {{y}} and {{z}} placeholders in Z-matrix geometry for
@@ -228,8 +226,6 @@ fn main() {
                 "{y:5.2} {z:5.2} {:8.2} {:8.2}",
                 output.harms[0], output.corrs[0]
             );
-            y += 0.2;
         }
-        z += 0.2;
     }
 }
