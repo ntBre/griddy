@@ -6,7 +6,7 @@ use pbqff::config::Config;
 use pbqff::coord_type::cart::{freqs, FirstOutput};
 use pbqff::coord_type::findiff::bighash::BigHash;
 use pbqff::coord_type::findiff::FiniteDifference;
-use pbqff::coord_type::{Cart, Derivative, FirstPart, Nderiv};
+use pbqff::coord_type::{Cart, Derivative, FirstPart};
 use pbqff::{cleanup, optimize, Output, Spectro};
 use psqs::geom::Geom;
 use psqs::max_threads;
@@ -19,7 +19,6 @@ use symm::Molecule;
 fn first_part(
     config: &FirstPart,
     queue: &Pbs,
-    nderiv: Nderiv,
     root_dir: impl AsRef<Path>,
     pts_dir: impl AsRef<Path>,
 ) -> Result<FirstOutput, Box<dyn Error>> {
@@ -44,10 +43,7 @@ fn first_part(
     let nfc2 = n * n;
     let nfc3 = n * (n + 1) * (n + 2) / 6;
     let nfc4 = n * (n + 1) * (n + 2) * (n + 3) / 24;
-    let deriv = match nderiv {
-        Nderiv::Two => Derivative::Harmonic(nfc2),
-        Nderiv::Four => Derivative::Quartic(nfc2, nfc3, nfc4),
-    };
+    let deriv = Derivative::Quartic(nfc2, nfc3, nfc4);
     let mut fcs = vec![0.0; nfc2 + nfc3 + nfc4];
     let mut mol = Molecule::new(geom.to_vec());
     if let Some(ws) = &config.weights {
@@ -134,7 +130,6 @@ fn run(
     } = first_part(
         &FirstPart::from(config.clone()),
         queue,
-        Nderiv::Four,
         &dir,
         dir.as_ref().join("pts"),
     )
