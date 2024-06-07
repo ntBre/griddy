@@ -151,15 +151,19 @@ fn run(
     freqs(Some(freq_dir), &mol, fc2, f3, f4)
 }
 
-/// At a high level, all I have to do is wrap this `run` call in two loops over
-/// He positions. That will bring me back to the shell script version I was
-/// running before. At that point, I need to start diving into the pbqff code
-/// and duplicating it in many cases, removing anything that changes the
-/// positions of the atoms. In particular, I will need to remove any calls to
-/// `normalize`. I should also check if Molpro has an option to prevent geometry
-/// reorientation because I need to ensure that the molecule is aligned in the
-/// same way on the axis for all of the He positions (not flipping sign, which
-/// would flip the relative He position)
+/// TODO ensure that the molecule is aligned in the same way on the axis for all
+/// of the He positions (not flipping sign, which would flip the relative He
+/// position). from what I can tell, Molpro is handling this, just verify
+///
+/// TODO combine optimizations and then combine all points. this will better
+/// avoid the 5 minute issue on maple and also speed things up overall, I think.
+/// just like in semp, I first need to run all of the optimizations together
+/// (just pass in each geometry to the very top of first_part), gather all of
+/// the results, call the middle part of first_part to build all of the jobs
+/// (plus some metadata describing where each chunk is), pass this huge list of
+/// jobs to drain, and then divide up the results to pass to the freqs part of
+/// run. it looks like FirstOutput is basically this metadata, except that I
+/// also need to track the indices into energies to split at
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let config_file = if args.len() < 2 {
