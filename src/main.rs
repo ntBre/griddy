@@ -7,11 +7,11 @@ use pbqff::coord_type::cart::{freqs, FirstOutput};
 use pbqff::coord_type::findiff::bighash::BigHash;
 use pbqff::coord_type::findiff::FiniteDifference;
 use pbqff::coord_type::{Cart, Derivative, FirstPart, Nderiv};
-use pbqff::{cleanup, optimize, ref_energy, Output, Spectro};
+use pbqff::{cleanup, optimize, Output, Spectro};
 use psqs::geom::Geom;
 use psqs::max_threads;
 use psqs::program::molpro::Molpro;
-use psqs::program::{Job, Program, Template};
+use psqs::program::{Job, Program, ProgramResult, Template};
 use psqs::queue::pbs::Pbs;
 use psqs::queue::{Check, Queue};
 use symm::Molecule;
@@ -24,29 +24,20 @@ fn first_part(
     pts_dir: impl AsRef<Path>,
 ) -> Result<FirstOutput, Box<dyn Error>> {
     let template = Template::from(&config.template);
-    let (geom, ref_energy) = if config.optimize {
-        let res = optimize::<_, Molpro>(
-            &root_dir,
-            queue,
-            config.geometry.clone(),
-            template.clone(),
-            config.charge,
-        )
-        .expect("optimization failed");
-        let Some(cart) = res.cart_geom else {
-            panic!("failed to extract cart geom from {res:?}");
-        };
-        (Geom::Xyz(cart), res.energy)
-    } else {
-        let ref_energy = ref_energy::<_, Molpro>(
-            queue,
-            config.geometry.clone(),
-            template.clone(),
-            config.charge,
-        );
-        (config.geometry.clone(), ref_energy)
+    let Ok(ProgramResult {
+        energy: ref_energy,
+        cart_geom: Some(geom),
+        time: _,
+    }) = optimize::<_, Molpro>(
+        &root_dir,
+        queue,
+        config.geometry.clone(),
+        template.clone(),
+        config.charge,
+    )
+    else {
+        panic!("optimization failed")
     };
-    let geom = geom.xyz().expect("expected an XYZ geometry, not Zmat");
     let ndummies = config.dummy_atoms.unwrap_or(0);
     // 3 * (#atoms - #dummy_atoms)
     let n = 3 * (geom.len() - ndummies);
