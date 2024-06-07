@@ -45,7 +45,7 @@ fn first_part(
     let nfc4 = n * (n + 1) * (n + 2) * (n + 3) / 24;
     let deriv = Derivative::Quartic(nfc2, nfc3, nfc4);
     let mut fcs = vec![0.0; nfc2 + nfc3 + nfc4];
-    let mut mol = Molecule::new(geom.to_vec());
+    let mut mol = Molecule::new(geom);
     if let Some(ws) = &config.weights {
         for (i, w) in ws.iter().enumerate() {
             mol.atoms[i].weight = Some(*w);
