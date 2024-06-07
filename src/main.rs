@@ -43,7 +43,6 @@ fn first_part(
     let nfc2 = n * n;
     let nfc3 = n * (n + 1) * (n + 2) / 6;
     let nfc4 = n * (n + 1) * (n + 2) * (n + 3) / 24;
-    let deriv = Derivative::Quartic(nfc2, nfc3, nfc4);
     let mut fcs = vec![0.0; nfc2 + nfc3 + nfc4];
     let mut mol = Molecule::new(geom);
     if let Some(ws) = &config.weights {
@@ -59,7 +58,7 @@ fn first_part(
         Geom::Xyz(mol.atoms.clone()),
         config.step_size,
         ref_energy,
-        deriv,
+        Derivative::Quartic(nfc2, nfc3, nfc4),
         &mut fcs,
         &mut target_map,
         n,
