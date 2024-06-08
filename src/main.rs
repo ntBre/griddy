@@ -1,10 +1,11 @@
 use std::io::stderr;
+use std::ops::Range;
 use std::path::Path;
 
 use pbqff::cleanup;
 use pbqff::config::Config;
-use pbqff::coord_type::cart::{freqs, FirstOutput};
-use pbqff::coord_type::findiff::bighash::BigHash;
+use pbqff::coord_type::cart::freqs;
+use pbqff::coord_type::findiff::bighash::{BigHash, Target};
 use pbqff::coord_type::findiff::FiniteDifference;
 use pbqff::coord_type::{Cart, Derivative, FirstPart};
 use psqs::geom::Geom;
@@ -16,15 +17,13 @@ use psqs::queue::{Check, Queue};
 use symm::{Atom, Molecule};
 
 fn optimize(
-    dir: impl AsRef<Path>,
+    opt_dir: impl AsRef<Path>,
     queue: &Pbs,
     geoms: Vec<OptInput>,
     template: Template,
     charge: isize,
 ) -> Vec<OptOutput> {
-    let opt_dir = dir.as_ref().join("opt");
-    let _ = std::fs::create_dir(&opt_dir);
-
+    let opt_dir = opt_dir.as_ref();
     let mut jobs = Vec::new();
     let mut ret = Vec::new();
     for (i, geom) in geoms.into_iter().enumerate() {
@@ -60,11 +59,11 @@ fn optimize(
 
 fn first_part(
     config: &FirstPart,
-    queue: &Pbs,
     pts_dir: impl AsRef<Path>,
-    ref_energy: f64,
-    geom: Vec<Atom>,
-) -> FirstOutput {
+    OptOutput { y, z, ref_energy, geom }: OptOutput,
+) -> BuiltJobs {
+    let ref_energy = ref_energy.unwrap();
+    let geom = geom.unwrap();
     let template = Template::from(&config.template);
     let ndummies = config.dummy_atoms.unwrap_or(0);
     // 3 * (#atoms - #dummy_atoms)
@@ -80,8 +79,7 @@ fn first_part(
         }
     }
     let pg = mol.point_group();
-    eprintln!("geometry:\n{mol}");
-    eprintln!("point group:{pg}");
+    eprintln!("geometry {y:.2} {z:.2}:\n{mol}");
     let mut target_map = BigHash::new(mol.clone(), pg);
     let geoms = Cart.build_points(
         Geom::Xyz(mol.atoms.clone()),
@@ -114,33 +112,8 @@ fn first_part(
             )
         })
         .collect();
-    let njobs = jobs.len();
-    eprintln!("{n} Cartesian coordinates requires {njobs} points");
 
-    // drain into energies
-    let mut energies = vec![0.0; njobs];
-    let time = queue
-        .drain(
-            pts_dir.as_ref().to_str().unwrap(),
-            jobs,
-            &mut energies,
-            Check::None,
-        )
-        .unwrap();
-
-    eprintln!("total job time: {time:.1} sec");
-
-    FirstOutput {
-        n,
-        nfc2,
-        nfc3,
-        fcs,
-        mol,
-        energies,
-        targets,
-        ref_energy,
-        pg,
-    }
+    BuiltJobs { n, nfc2, nfc3, fcs, mol, targets, jobs }
 }
 
 struct OptInput {
@@ -154,6 +127,28 @@ struct OptOutput {
     z: f64,
     ref_energy: Option<f64>,
     geom: Option<Vec<Atom>>,
+}
+
+struct BuiltJobs {
+    n: usize,
+    nfc2: usize,
+    nfc3: usize,
+    fcs: Vec<f64>,
+    mol: Molecule,
+    targets: Vec<Target>,
+    jobs: Vec<Job<Molpro>>,
+}
+
+struct RunJobs {
+    y: f64,
+    z: f64,
+    n: usize,
+    nfc2: usize,
+    nfc3: usize,
+    fcs: Vec<f64>,
+    mol: Molecule,
+    targets: Vec<Target>,
+    jobs: Range<usize>,
 }
 
 /// TODO ensure that the molecule is aligned in the same way on the axis for all
@@ -179,6 +174,7 @@ fn main() {
     let config = Config::load(config_file);
     let no_del = false;
     let work_dir = ".";
+    let opt_dir = "opt";
     let pts_dir = "pts";
     max_threads(8);
 
@@ -215,37 +211,46 @@ fn main() {
         config.queue_template.clone(),
     );
 
-    let template = Template::from(&config.template);
-    let opts = optimize(work_dir, &queue, opt_inputs, template, config.charge);
+    cleanup(work_dir);
+    std::fs::create_dir(pts_dir).unwrap();
+    std::fs::create_dir(opt_dir).unwrap();
 
-    for OptOutput {
-        y,
-        z,
-        ref_energy,
-        geom,
-    } in opts
-    {
-        cleanup(work_dir);
-        let _ = std::fs::create_dir(pts_dir);
-        let FirstOutput {
+    let template = Template::from(&config.template);
+    let opts = optimize(opt_dir, &queue, opt_inputs, template, config.charge);
+
+    let mut run_jobs = Vec::new();
+    let mut all_jobs = Vec::new();
+    for o @ OptOutput { y, z, .. } in opts {
+        let BuiltJobs { n, nfc2, nfc3, fcs, mol, targets, jobs } =
+            first_part(&FirstPart::from(config.clone()), pts_dir, o);
+        let start = all_jobs.len();
+        all_jobs.extend(jobs);
+        let end = all_jobs.len();
+        run_jobs.push(RunJobs {
+            y,
+            z,
             n,
             nfc2,
             nfc3,
-            mut fcs,
-            mut mol,
-            energies,
+            fcs,
+            mol,
             targets,
-            ..
-        } = first_part(
-            &FirstPart::from(config.clone()),
-            &queue,
-            pts_dir,
-            ref_energy.unwrap(),
-            geom.unwrap(),
-        );
+            jobs: start..end,
+        });
+    }
+
+    // drain into energies
+    let mut energies = vec![0.0; all_jobs.len()];
+    queue
+        .drain(pts_dir, all_jobs, &mut energies, Check::None)
+        .unwrap();
+
+    for RunJobs { y, z, n, nfc2, nfc3, mut fcs, mut mol, targets, jobs } in
+        run_jobs
+    {
         let (fc2, f3, f4) = Cart.make_fcs(
             targets,
-            &energies,
+            &energies[jobs],
             &mut fcs,
             n,
             Derivative::Quartic(nfc2, nfc3, 0),
