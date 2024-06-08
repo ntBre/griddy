@@ -1,60 +1,71 @@
-use std::error::Error;
 use std::io::stderr;
 use std::path::Path;
 
+use pbqff::cleanup;
 use pbqff::config::Config;
 use pbqff::coord_type::cart::{freqs, FirstOutput};
 use pbqff::coord_type::findiff::bighash::BigHash;
 use pbqff::coord_type::findiff::FiniteDifference;
 use pbqff::coord_type::{Cart, Derivative, FirstPart};
-use pbqff::{cleanup, Output, Spectro};
 use psqs::geom::Geom;
 use psqs::max_threads;
 use psqs::program::molpro::Molpro;
-use psqs::program::{Job, Program, ProgramError, ProgramResult, Template};
+use psqs::program::{Job, Program, Template};
 use psqs::queue::pbs::Pbs;
 use psqs::queue::{Check, Queue};
-use symm::Molecule;
+use symm::{Atom, Molecule};
 
 fn optimize(
     dir: impl AsRef<Path>,
     queue: &Pbs,
-    geom: Geom,
+    geoms: Vec<OptInput>,
     template: Template,
     charge: isize,
-) -> Result<ProgramResult, ProgramError> {
+) -> Vec<OptOutput> {
     let opt_dir = dir.as_ref().join("opt");
     let _ = std::fs::create_dir(&opt_dir);
-    let opt_file = opt_dir.join("opt").to_str().unwrap().to_owned();
-    let opt = Job::new(Molpro::new(opt_file, template, charge, geom), 0);
-    let mut res = vec![Default::default(); 1];
-    let time =
-        queue.energize(opt_dir.to_str().unwrap(), vec![opt], &mut res)?;
-    eprintln!("total optimize time: {time:.1} sec");
-    Ok(res.pop().unwrap())
+
+    let mut jobs = Vec::new();
+    let mut ret = Vec::new();
+    for (i, geom) in geoms.into_iter().enumerate() {
+        let opt_file = opt_dir.join("opt").to_str().unwrap().to_owned();
+        jobs.push(Job::new(
+            Molpro::new(
+                opt_file + &i.to_string(),
+                template.clone(),
+                charge,
+                geom.geometry,
+            ),
+            i,
+        ));
+        ret.push(OptOutput {
+            y: geom.y,
+            z: geom.z,
+            ref_energy: None,
+            geom: None,
+        });
+    }
+    let mut res = vec![Default::default(); jobs.len()];
+    queue
+        .energize(opt_dir.to_str().unwrap(), jobs, &mut res)
+        .unwrap();
+
+    for (i, r) in res.into_iter().enumerate() {
+        ret[i].ref_energy = Some(r.energy);
+        ret[i].geom = Some(r.cart_geom.unwrap());
+    }
+
+    ret
 }
 
 fn first_part(
     config: &FirstPart,
     queue: &Pbs,
-    root_dir: impl AsRef<Path>,
     pts_dir: impl AsRef<Path>,
-) -> Result<FirstOutput, Box<dyn Error>> {
+    ref_energy: f64,
+    geom: Vec<Atom>,
+) -> FirstOutput {
     let template = Template::from(&config.template);
-    let Ok(ProgramResult {
-        energy: ref_energy,
-        cart_geom: Some(geom),
-        time: _,
-    }) = optimize(
-        &root_dir,
-        queue,
-        config.geometry.clone(),
-        template.clone(),
-        config.charge,
-    )
-    else {
-        panic!("optimization failed")
-    };
     let ndummies = config.dummy_atoms.unwrap_or(0);
     // 3 * (#atoms - #dummy_atoms)
     let n = 3 * (geom.len() - ndummies);
@@ -108,16 +119,18 @@ fn first_part(
 
     // drain into energies
     let mut energies = vec![0.0; njobs];
-    let time = queue.drain(
-        pts_dir.as_ref().to_str().unwrap(),
-        jobs,
-        &mut energies,
-        Check::None,
-    )?;
+    let time = queue
+        .drain(
+            pts_dir.as_ref().to_str().unwrap(),
+            jobs,
+            &mut energies,
+            Check::None,
+        )
+        .unwrap();
 
     eprintln!("total job time: {time:.1} sec");
 
-    Ok(FirstOutput {
+    FirstOutput {
         n,
         nfc2,
         nfc3,
@@ -127,52 +140,20 @@ fn first_part(
         targets,
         ref_energy,
         pg,
-    })
-}
-
-fn run(
-    dir: impl AsRef<Path>,
-    queue: &Pbs,
-    config: &Config,
-) -> (Spectro, Output) {
-    let FirstOutput {
-        n,
-        nfc2,
-        nfc3,
-        mut fcs,
-        mut mol,
-        energies,
-        targets,
-        ..
-    } = first_part(
-        &FirstPart::from(config.clone()),
-        queue,
-        &dir,
-        dir.as_ref().join("pts"),
-    )
-    .unwrap();
-
-    let freq_dir = &dir.as_ref().join("freqs");
-    let (fc2, f3, f4) = Cart.make_fcs(
-        targets,
-        &energies,
-        &mut fcs,
-        n,
-        Derivative::Quartic(nfc2, nfc3, 0),
-        Some(freq_dir),
-    );
-
-    if let Some(d) = &config.dummy_atoms {
-        mol.atoms.truncate(mol.atoms.len() - d);
     }
-
-    freqs(Some(freq_dir), &mol, fc2, f3, f4)
 }
 
 struct OptInput {
     y: f64,
     z: f64,
     geometry: Geom,
+}
+
+struct OptOutput {
+    y: f64,
+    z: f64,
+    ref_energy: Option<f64>,
+    geom: Option<Vec<Atom>>,
 }
 
 /// TODO ensure that the molecule is aligned in the same way on the axis for all
@@ -225,26 +206,59 @@ fn main() {
         }
     }
 
-    for OptInput { y, z, geometry } in opt_inputs {
+    let queue = Pbs::new(
+        config.chunk_size,
+        config.job_limit,
+        config.sleep_int,
+        pts_dir,
+        no_del,
+        config.queue_template.clone(),
+    );
+
+    let template = Template::from(&config.template);
+    let opts = optimize(work_dir, &queue, opt_inputs, template, config.charge);
+
+    for OptOutput {
+        y,
+        z,
+        ref_energy,
+        geom,
+    } in opts
+    {
         cleanup(work_dir);
         let _ = std::fs::create_dir(pts_dir);
-        let config = Config {
-            geometry,
-            ..config.clone()
-        };
-        let (spectro, output) = run(
-            work_dir,
-            &Pbs::new(
-                config.chunk_size,
-                config.job_limit,
-                config.sleep_int,
-                pts_dir,
-                no_del,
-                config.queue_template.clone(),
-            ),
-            &config,
+        let FirstOutput {
+            n,
+            nfc2,
+            nfc3,
+            mut fcs,
+            mut mol,
+            energies,
+            targets,
+            ..
+        } = first_part(
+            &FirstPart::from(config.clone()),
+            &queue,
+            pts_dir,
+            ref_energy.unwrap(),
+            geom.unwrap(),
         );
+        let (fc2, f3, f4) = Cart.make_fcs(
+            targets,
+            &energies,
+            &mut fcs,
+            n,
+            Derivative::Quartic(nfc2, nfc3, 0),
+            None::<&str>,
+        );
+
+        if let Some(d) = &config.dummy_atoms {
+            mol.atoms.truncate(mol.atoms.len() - d);
+        }
+
+        let (spectro, output) = freqs(None::<&str>, &mol, fc2, f3, f4);
         spectro.write_output(&mut stderr(), &output).unwrap();
+
         println!(
             "{y:5.2} {z:5.2} {:8.2} {:8.2}",
             output.harms[0], output.corrs[0]
