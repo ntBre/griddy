@@ -151,6 +151,12 @@ fn run(
     freqs(Some(freq_dir), &mol, fc2, f3, f4)
 }
 
+struct OptInput {
+    y: f64,
+    z: f64,
+    geometry: Geom,
+}
+
 /// TODO ensure that the molecule is aligned in the same way on the axis for all
 /// of the He positions (not flipping sign, which would flip the relative He
 /// position). from what I can tell, Molpro is handling this, just verify
@@ -171,7 +177,7 @@ fn main() {
     } else {
         args[1].as_str()
     };
-    let mut config = Config::load(config_file);
+    let config = Config::load(config_file);
     let no_del = false;
     let work_dir = ".";
     let pts_dir = "pts";
@@ -185,36 +191,45 @@ fn main() {
         .cloned()
         .expect("griddy requires Z-matrix input");
 
+    let mut opt_inputs = Vec::new();
     // molpro orients a diatomic molecule along the z-axis, so we need to step
     // He in the yz- (or xz-) plane, with the wider range along z
     for z in (-60..60).step_by(2).map(|z| z as f64 / 10.0) {
         for y in (10..60).step_by(2).map(|y| y as f64 / 10.0) {
-            cleanup(work_dir);
-            let _ = std::fs::create_dir(pts_dir);
             // require {{y}} and {{z}} placeholders in Z-matrix geometry for
             // positioning the He atom for each calculation
-            config.geometry = Geom::Zmat(
+            let geometry = Geom::Zmat(
                 geom_template
                     .replace("{{y}}", &y.to_string())
                     .replace("{{z}}", &z.to_string()),
             );
-            let (spectro, output) = run(
-                work_dir,
-                &Pbs::new(
-                    config.chunk_size,
-                    config.job_limit,
-                    config.sleep_int,
-                    pts_dir,
-                    no_del,
-                    config.queue_template.clone(),
-                ),
-                &config,
-            );
-            spectro.write_output(&mut stderr(), &output).unwrap();
-            println!(
-                "{y:5.2} {z:5.2} {:8.2} {:8.2}",
-                output.harms[0], output.corrs[0]
-            );
+            opt_inputs.push(OptInput { y, z, geometry });
         }
+    }
+
+    for OptInput { y, z, geometry } in opt_inputs {
+        cleanup(work_dir);
+        let _ = std::fs::create_dir(pts_dir);
+        let config = Config {
+            geometry,
+            ..config.clone()
+        };
+        let (spectro, output) = run(
+            work_dir,
+            &Pbs::new(
+                config.chunk_size,
+                config.job_limit,
+                config.sleep_int,
+                pts_dir,
+                no_del,
+                config.queue_template.clone(),
+            ),
+            &config,
+        );
+        spectro.write_output(&mut stderr(), &output).unwrap();
+        println!(
+            "{y:5.2} {z:5.2} {:8.2} {:8.2}",
+            output.harms[0], output.corrs[0]
+        );
     }
 }
