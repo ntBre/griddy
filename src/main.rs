@@ -61,6 +61,7 @@ fn first_part(
     config: &FirstPart,
     pts_dir: impl AsRef<Path>,
     OptOutput { y, z, ref_energy, geom }: OptOutput,
+    start_index: usize,
 ) -> BuiltJobs {
     let ref_energy = ref_energy.unwrap();
     let geom = geom.unwrap();
@@ -95,7 +96,7 @@ fn first_part(
         .into_iter()
         .enumerate()
         .map(|(job_num, mol)| {
-            let filename = format!("job.{job_num:08}");
+            let filename = format!("job.{:08}", job_num + start_index);
             let filename = pts_dir
                 .as_ref()
                 .join(filename)
@@ -108,7 +109,7 @@ fn first_part(
                     config.charge,
                     mol.geom,
                 ),
-                mol.index,
+                mol.index + start_index,
             )
         })
         .collect();
@@ -238,9 +239,15 @@ fn main() {
 
     let mut run_jobs = Vec::new();
     let mut all_jobs = Vec::new();
+    let mut start_index = 0;
     for o @ OptOutput { y, z, .. } in opts {
-        let BuiltJobs { n, nfc2, nfc3, fcs, mol, targets, jobs } =
-            first_part(&FirstPart::from(config.clone()), pts_dir, o);
+        let BuiltJobs { n, nfc2, nfc3, fcs, mol, targets, jobs } = first_part(
+            &FirstPart::from(config.clone()),
+            pts_dir,
+            o,
+            start_index,
+        );
+        start_index += jobs.len();
         let start = all_jobs.len();
         all_jobs.extend(jobs);
         let end = all_jobs.len();
