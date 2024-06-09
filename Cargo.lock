@@ -223,6 +223,8 @@ version = "0.1.0"
 dependencies = [
  "pbqff",
  "psqs",
+ "serde",
+ "serde_json",
  "symm",
 ]
 

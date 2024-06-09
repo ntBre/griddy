@@ -122,6 +122,7 @@ struct OptInput {
     geometry: Geom,
 }
 
+#[derive(serde::Serialize)]
 struct OptOutput {
     y: f64,
     z: f64,
@@ -149,6 +150,21 @@ struct RunJobs {
     mol: Molecule,
     targets: Vec<Target>,
     jobs: Range<usize>,
+}
+
+/// Serialize `opts` to JSON and save to `path`. Logs any errors, but should
+/// never panic.
+fn write_opt_checkpoint(opts: &Vec<OptOutput>, path: impl AsRef<Path>) {
+    match serde_json::to_string_pretty(opts) {
+        Ok(s) => {
+            if let Err(e) = std::fs::write(path, s) {
+                eprintln!("error writing opt checkpoint: {e:?}");
+            }
+        }
+        Err(e) => {
+            eprintln!("error converting opt output to json: {e:?}");
+        }
+    }
 }
 
 /// TODO ensure that the molecule is aligned in the same way on the axis for all
@@ -217,6 +233,8 @@ fn main() {
 
     let template = Template::from(&config.template);
     let opts = optimize(opt_dir, &queue, opt_inputs, template, config.charge);
+
+    write_opt_checkpoint(&opts, "opts.json");
 
     let mut run_jobs = Vec::new();
     let mut all_jobs = Vec::new();
