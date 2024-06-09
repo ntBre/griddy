@@ -1,7 +1,10 @@
+use std::fs::read_to_string;
 use std::io::stderr;
 use std::ops::Range;
 use std::path::Path;
 
+use clap::Parser;
+use log::info;
 use pbqff::cleanup;
 use pbqff::config::Config;
 use pbqff::coord_type::cart::freqs;
@@ -123,7 +126,26 @@ struct OptInput {
     geometry: Geom,
 }
 
-#[derive(serde::Serialize)]
+fn build_opt_inputs(geom_template: &str) -> Vec<OptInput> {
+    let mut opt_inputs = Vec::new();
+    // molpro orients a diatomic molecule along the z-axis, so we need to step
+    // He in the yz- (or xz-) plane, with the wider range along z
+    for z in (-60..60).step_by(2).map(|z| z as f64 / 10.0) {
+        for y in (10..60).step_by(2).map(|y| y as f64 / 10.0) {
+            // require {{y}} and {{z}} placeholders in Z-matrix geometry for
+            // positioning the He atom for each calculation
+            let geometry = Geom::Zmat(
+                geom_template
+                    .replace("{{y}}", &y.to_string())
+                    .replace("{{z}}", &z.to_string()),
+            );
+            opt_inputs.push(OptInput { y, z, geometry });
+        }
+    }
+    opt_inputs
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
 struct OptOutput {
     y: f64,
     z: f64,
@@ -168,6 +190,28 @@ fn write_opt_checkpoint(opts: &Vec<OptOutput>, path: impl AsRef<Path>) {
     }
 }
 
+/// Load a sequence of [OptOutput]s from the JSON file at `path`.
+fn load_opt_checkpoint(path: impl AsRef<Path>) -> Vec<OptOutput> {
+    let s = read_to_string(path).unwrap();
+    serde_json::from_str(&s).unwrap()
+}
+
+#[derive(Parser)]
+#[command(author, about, long_about = None)]
+struct Args {
+    #[arg(value_parser, default_value = "pbqff.toml")]
+    config_file: String,
+
+    /// Resume from the opt checkpoint file in the current directory.
+    #[arg(short, long, default_value_t = false)]
+    checkpoint: bool,
+
+    /// Set the maximum number of threads to use. Defaults to 0, which means to
+    /// use as many threads as there are CPUS.
+    #[arg(short, long, default_value_t = 0)]
+    threads: usize,
+}
+
 /// TODO ensure that the molecule is aligned in the same way on the axis for all
 /// of the He positions (not flipping sign, which would flip the relative He
 /// position). from what I can tell, Molpro is handling this, just verify
@@ -182,42 +226,17 @@ fn write_opt_checkpoint(opts: &Vec<OptOutput>, path: impl AsRef<Path>) {
 /// run. it looks like FirstOutput is basically this metadata, except that I
 /// also need to track the indices into energies to split at
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let config_file = if args.len() < 2 {
-        "pbqff.toml"
-    } else {
-        args[1].as_str()
-    };
-    let config = Config::load(config_file);
+    env_logger::init();
+
+    let args = Args::parse();
+
+    let config = Config::load(args.config_file);
     let no_del = false;
     let work_dir = ".";
     let opt_dir = "opt";
     let pts_dir = "pts";
-    max_threads(8);
-
-    println!("{:>5} {:>5} {:>8} {:>8}", "y", "z", "harm", "corr");
-
-    let geom_template = config
-        .geometry
-        .zmat()
-        .cloned()
-        .expect("griddy requires Z-matrix input");
-
-    let mut opt_inputs = Vec::new();
-    // molpro orients a diatomic molecule along the z-axis, so we need to step
-    // He in the yz- (or xz-) plane, with the wider range along z
-    for z in (-60..60).step_by(2).map(|z| z as f64 / 10.0) {
-        for y in (10..60).step_by(2).map(|y| y as f64 / 10.0) {
-            // require {{y}} and {{z}} placeholders in Z-matrix geometry for
-            // positioning the He atom for each calculation
-            let geometry = Geom::Zmat(
-                geom_template
-                    .replace("{{y}}", &y.to_string())
-                    .replace("{{z}}", &z.to_string()),
-            );
-            opt_inputs.push(OptInput { y, z, geometry });
-        }
-    }
+    info!("initializing thread pool with {} threads", args.threads);
+    max_threads(args.threads);
 
     let queue = Pbs::new(
         config.chunk_size,
@@ -228,15 +247,34 @@ fn main() {
         config.queue_template.clone(),
     );
 
+    info!("cleaning up directories from a previous run");
     cleanup(work_dir);
+
+    info!("building new directories");
     std::fs::create_dir(pts_dir).unwrap();
     std::fs::create_dir(opt_dir).unwrap();
 
-    let template = Template::from(&config.template);
-    let opts = optimize(opt_dir, &queue, opt_inputs, template, config.charge);
+    const OPT_CHK: &str = "opts.json";
 
-    write_opt_checkpoint(&opts, "opts.json");
+    let opts = if args.checkpoint {
+        info!("loading optimizations from checkpoint");
+        load_opt_checkpoint(OPT_CHK)
+    } else {
+        let geom_template = config
+            .geometry
+            .zmat()
+            .expect("griddy requires Z-matrix input");
+        let opt_inputs = build_opt_inputs(geom_template);
 
+        let template = Template::from(&config.template);
+        let opts =
+            optimize(opt_dir, &queue, opt_inputs, template, config.charge);
+
+        write_opt_checkpoint(&opts, OPT_CHK);
+        opts
+    };
+
+    info!("building jobs from opt output");
     let mut run_jobs = Vec::new();
     let mut all_jobs = Vec::new();
     let mut start_index = 0;
@@ -264,11 +302,17 @@ fn main() {
         });
     }
 
+    info!("running jobs");
+
     // drain into energies
     let mut energies = vec![0.0; all_jobs.len()];
     queue
         .drain(pts_dir, all_jobs, &mut energies, Check::None)
         .unwrap();
+
+    info!("finished running jobs");
+
+    println!("{:>5} {:>5} {:>8} {:>8}", "y", "z", "harm", "corr");
 
     for RunJobs { y, z, n, nfc2, nfc3, mut fcs, mut mol, targets, jobs } in
         run_jobs
