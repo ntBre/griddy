@@ -215,16 +215,6 @@ struct Args {
 /// TODO ensure that the molecule is aligned in the same way on the axis for all
 /// of the He positions (not flipping sign, which would flip the relative He
 /// position). from what I can tell, Molpro is handling this, just verify
-///
-/// TODO combine optimizations and then combine all points. this will better
-/// avoid the 5 minute issue on maple and also speed things up overall, I think.
-/// just like in semp, I first need to run all of the optimizations together
-/// (just pass in each geometry to the very top of first_part), gather all of
-/// the results, call the middle part of first_part to build all of the jobs
-/// (plus some metadata describing where each chunk is), pass this huge list of
-/// jobs to drain, and then divide up the results to pass to the freqs part of
-/// run. it looks like FirstOutput is basically this metadata, except that I
-/// also need to track the indices into energies to split at
 fn main() {
     env_logger::init();
 
