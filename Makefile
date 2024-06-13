@@ -3,7 +3,10 @@ WOODS=woods
 WOODS_DEST = ${WOODS}':bin/griddy'
 
 clippy:
-	cargo clippy
+	cargo clippy --workspace --tests
+
+test:
+	cargo test
 
 .PHONY: clippy
 
