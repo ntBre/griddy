@@ -1,6 +1,6 @@
 use std::fs::read_to_string;
 use std::io::stderr;
-use std::ops::Range;
+use std::ops::{Range, RangeInclusive};
 use std::path::Path;
 
 use clap::Parser;
@@ -26,8 +26,8 @@ mod tests {
     #[test]
     fn load_config() {
         let got = Config::load("testfiles/pbqff.toml");
-        assert_eq!(got.yrange, 1..2);
-        assert_eq!(got.zrange, 3..4);
+        assert_eq!(got.yrange, 1..=2);
+        assert_eq!(got.zrange, 3..=4);
     }
 }
 
@@ -140,8 +140,8 @@ struct OptInput {
 
 fn build_opt_inputs(
     geom_template: &str,
-    yrange: Range<usize>,
-    zrange: Range<usize>,
+    yrange: RangeInclusive<usize>,
+    zrange: RangeInclusive<usize>,
 ) -> Vec<OptInput> {
     let mut opt_inputs = Vec::new();
     // molpro orients a diatomic molecule along the z-axis, so we need to step
@@ -231,8 +231,8 @@ struct Args {
 #[derive(Deserialize)]
 struct Config {
     pbqff: pbqff::config::Config,
-    yrange: Range<usize>,
-    zrange: Range<usize>,
+    yrange: RangeInclusive<usize>,
+    zrange: RangeInclusive<usize>,
 }
 
 impl Config {
