@@ -1,3 +1,7 @@
+yrange = { start = 1, end = 2}
+zrange = { start = 3, end = 4}
+
+[pbqff]
 geometry = """
 H
 O 1 oh

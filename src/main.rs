@@ -6,7 +6,6 @@ use std::path::Path;
 use clap::Parser;
 use log::info;
 use pbqff::cleanup;
-use pbqff::config::Config;
 use pbqff::coord_type::cart::freqs;
 use pbqff::coord_type::findiff::bighash::{BigHash, Target};
 use pbqff::coord_type::findiff::FiniteDifference;
@@ -17,7 +16,20 @@ use psqs::program::molpro::Molpro;
 use psqs::program::{Job, Program, Template};
 use psqs::queue::pbs::Pbs;
 use psqs::queue::{Check, Queue};
+use serde::Deserialize;
 use symm::{Atom, Molecule};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_config() {
+        let got = Config::load("testfiles/pbqff.toml");
+        assert_eq!(got.yrange, 1..2);
+        assert_eq!(got.zrange, 3..4);
+    }
+}
 
 fn optimize(
     opt_dir: impl AsRef<Path>,
@@ -126,12 +138,16 @@ struct OptInput {
     geometry: Geom,
 }
 
-fn build_opt_inputs(geom_template: &str) -> Vec<OptInput> {
+fn build_opt_inputs(
+    geom_template: &str,
+    yrange: Range<usize>,
+    zrange: Range<usize>,
+) -> Vec<OptInput> {
     let mut opt_inputs = Vec::new();
     // molpro orients a diatomic molecule along the z-axis, so we need to step
     // He in the yz- (or xz-) plane, with the wider range along z
-    for z in (-60..60).step_by(2).map(|z| z as f64 / 10.0) {
-        for y in (10..60).step_by(2).map(|y| y as f64 / 10.0) {
+    for z in zrange.step_by(2).map(|z| z as f64 / 10.0) {
+        for y in yrange.clone().step_by(2).map(|y| y as f64 / 10.0) {
             // require {{y}} and {{z}} placeholders in Z-matrix geometry for
             // positioning the He atom for each calculation
             let geometry = Geom::Zmat(
@@ -212,6 +228,20 @@ struct Args {
     threads: usize,
 }
 
+#[derive(Deserialize)]
+struct Config {
+    pbqff: pbqff::config::Config,
+    yrange: Range<usize>,
+    zrange: Range<usize>,
+}
+
+impl Config {
+    fn load(path: impl AsRef<Path>) -> Self {
+        let s = read_to_string(path).unwrap();
+        toml::from_str(&s).unwrap()
+    }
+}
+
 /// TODO ensure that the molecule is aligned in the same way on the axis for all
 /// of the He positions (not flipping sign, which would flip the relative He
 /// position). from what I can tell, Molpro is handling this, just verify
@@ -229,12 +259,12 @@ fn main() {
     max_threads(args.threads);
 
     let queue = Pbs::new(
-        config.chunk_size,
-        config.job_limit,
-        config.sleep_int,
+        config.pbqff.chunk_size,
+        config.pbqff.job_limit,
+        config.pbqff.sleep_int,
         pts_dir,
         no_del,
-        config.queue_template.clone(),
+        config.pbqff.queue_template.clone(),
     );
 
     info!("cleaning up directories from a previous run");
@@ -251,14 +281,21 @@ fn main() {
         load_opt_checkpoint(OPT_CHK)
     } else {
         let geom_template = config
+            .pbqff
             .geometry
             .zmat()
             .expect("griddy requires Z-matrix input");
-        let opt_inputs = build_opt_inputs(geom_template);
+        let opt_inputs =
+            build_opt_inputs(geom_template, config.yrange, config.zrange);
 
-        let template = Template::from(&config.template);
-        let opts =
-            optimize(opt_dir, &queue, opt_inputs, template, config.charge);
+        let template = Template::from(&config.pbqff.template);
+        let opts = optimize(
+            opt_dir,
+            &queue,
+            opt_inputs,
+            template,
+            config.pbqff.charge,
+        );
 
         write_opt_checkpoint(&opts, OPT_CHK);
         opts
@@ -270,7 +307,7 @@ fn main() {
     let mut start_index = 0;
     for o @ OptOutput { y, z, .. } in opts {
         let BuiltJobs { n, nfc2, nfc3, fcs, mol, targets, jobs } = first_part(
-            &FirstPart::from(config.clone()),
+            &FirstPart::from(config.pbqff.clone()),
             pts_dir,
             o,
             start_index,
@@ -316,7 +353,7 @@ fn main() {
             None::<&str>,
         );
 
-        if let Some(d) = &config.dummy_atoms {
+        if let Some(d) = &config.pbqff.dummy_atoms {
             mol.atoms.truncate(mol.atoms.len() - d);
         }
 
