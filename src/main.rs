@@ -60,9 +60,20 @@ fn optimize(
         });
     }
     let mut res = vec![Default::default(); jobs.len()];
-    queue
-        .energize(opt_dir.to_str().unwrap(), jobs, &mut res)
-        .unwrap();
+    let res = match queue.energize(opt_dir.to_str().unwrap(), jobs, &mut res) {
+        Ok(time) => {
+            info!("total optimize time: {time:.2} s");
+            res
+        }
+        Err(failed_indices) => {
+            info!("filtering out {} failed indices", failed_indices.len());
+            assert_eq!(res.len(), ret.len());
+            let res = filter_failed(res, &failed_indices);
+            ret = filter_failed(ret, &failed_indices);
+            assert_eq!(res.len(), ret.len());
+            res
+        }
+    };
 
     for (i, r) in res.into_iter().enumerate() {
         ret[i].ref_energy = Some(r.energy);
@@ -70,6 +81,14 @@ fn optimize(
     }
 
     ret
+}
+
+fn filter_failed<T>(res: Vec<T>, failed_indices: &[usize]) -> Vec<T> {
+    res.into_iter()
+        .enumerate()
+        .filter(|(i, _)| !failed_indices.contains(i))
+        .map(|(_, res)| res)
+        .collect()
 }
 
 fn first_part(
