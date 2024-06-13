@@ -27,7 +27,7 @@ mod tests {
     fn load_config() {
         let got = Config::load("testfiles/pbqff.toml");
         assert_eq!(got.yrange, 1..=2);
-        assert_eq!(got.zrange, 3..=4);
+        assert_eq!(got.zrange, -3..=3);
     }
 }
 
@@ -140,8 +140,8 @@ struct OptInput {
 
 fn build_opt_inputs(
     geom_template: &str,
-    yrange: RangeInclusive<usize>,
-    zrange: RangeInclusive<usize>,
+    yrange: RangeInclusive<isize>,
+    zrange: RangeInclusive<isize>,
 ) -> Vec<OptInput> {
     let mut opt_inputs = Vec::new();
     // molpro orients a diatomic molecule along the z-axis, so we need to step
@@ -231,8 +231,8 @@ struct Args {
 #[derive(Deserialize)]
 struct Config {
     pbqff: pbqff::config::Config,
-    yrange: RangeInclusive<usize>,
-    zrange: RangeInclusive<usize>,
+    yrange: RangeInclusive<isize>,
+    zrange: RangeInclusive<isize>,
 }
 
 impl Config {

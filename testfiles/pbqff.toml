@@ -1,5 +1,5 @@
 yrange = { start = 1, end = 2}
-zrange = { start = 3, end = 4}
+zrange = { start = -3, end = 3}
 
 [pbqff]
 geometry = """
