@@ -23,3 +23,12 @@ spectro = { version = "0.1.0", path = "../spectro/spectro" }
 
 [patch."https://github.com/ntBre/symm"]
 symm = { version = "0.1.0", path = "../symm" }
+
+[patch."https://github.com/ntBre/intder"]
+intder = { version = "0.1.0", path = "../intder" }
+
+[patch."https://github.com/ntBre/taylor"]
+taylor = { version = "0.1.0", path = "../taylor" }
+
+[patch."https://github.com/ntBre/rust-anpass"]
+rust-anpass = { version = "0.1.0", path = "../rust-anpass" }
