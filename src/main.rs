@@ -4,7 +4,7 @@ use std::ops::{Range, RangeInclusive};
 use std::path::Path;
 
 use clap::Parser;
-use log::info;
+use log::{info, warn};
 use pbqff::cleanup;
 use pbqff::coord_type::cart::freqs;
 use pbqff::coord_type::findiff::bighash::{BigHash, Target};
@@ -352,9 +352,11 @@ fn main() {
 
     // drain into energies
     let mut energies = vec![0.0; all_jobs.len()];
-    queue
-        .drain(pts_dir, all_jobs, &mut energies, Check::None)
-        .unwrap();
+    let failed_idxs =
+        match queue.drain(pts_dir, all_jobs, &mut energies, Check::None) {
+            Ok(_) => Vec::new(),
+            Err(e) => e,
+        };
 
     info!("finished running jobs");
 
@@ -363,6 +365,11 @@ fn main() {
     for RunJobs { y, z, n, nfc2, nfc3, mut fcs, mut mol, targets, jobs } in
         run_jobs
     {
+        if failed_idxs.iter().any(|idx| jobs.contains(idx)) {
+            warn!("skipping grid point ({y}, {z}) with failed jobs");
+            continue;
+        }
+
         let (fc2, f3, f4) = Cart.make_fcs(
             targets,
             &energies[jobs],
