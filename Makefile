@@ -16,5 +16,7 @@ $(TARGET): src/main.rs
 
 build: $(TARGET)
 
+hash := $(shell git rev-parse HEAD | cut -c 1-7)
+
 woods: build
-	scp -C ${TARGET} ${WOODS_DEST}
+	scp -C ${TARGET} ${WOODS_DEST}.$(hash)
